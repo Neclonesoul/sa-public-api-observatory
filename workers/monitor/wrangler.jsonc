@@ -1,1 +1,1 @@
-{"name":"sa-api-observatory-monitor","main":"src/index.ts","compatibility_date":"2026-08-21","triggers":{"crons":["*/15 * * * *"]},"d1_databases":[{"binding":"DB","database_name":"sa-api-observatory","database_id":"f32cb322-ab85-4740-bcc2-259881d5c5af"}],"vars":{"MONITOR_LIMIT":"10"}}
+{"name":"sa-api-observatory-monitor","main":"src/index.ts","compatibility_date":"2026-08-21","triggers":{"crons":["* * * * *"]},"d1_databases":[{"binding":"DB","database_name":"sa-api-observatory","database_id":"f32cb322-ab85-4740-bcc2-259881d5c5af"}],"vars":{"MONITOR_LIMIT":"11"}}
