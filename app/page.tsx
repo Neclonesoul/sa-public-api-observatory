@@ -4,6 +4,8 @@ import { resources } from "../packages/catalogue/src/catalogue";
 import { ResourceCard } from "../components/ResourceCard";
 import { getDb } from "../lib/cloudflare";
 
+export const dynamic = "force-dynamic";
+
 const publicResources = resources.filter((resource) => resource.universe === "public-infrastructure");
 const ecosystemResources = resources.filter((resource) => resource.universe === "za-api-ecosystem");
 const monitoredPublic = publicResources.filter((resource) => resource.monitoring.enabled);
