@@ -1,0 +1,1 @@
+import{resources}from"../../packages/catalogue/src/catalogue";export function GET(){return new Response(resources.map(r=>JSON.stringify(r)).join("\n")+"\n",{headers:{"Content-Type":"application/x-ndjson; charset=utf-8","Access-Control-Allow-Origin":"*"}})}

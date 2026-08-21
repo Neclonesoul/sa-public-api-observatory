@@ -1,0 +1,1 @@
+import{organisations}from"../../../../packages/catalogue/src/catalogue";export function GET(){return Response.json({data:organisations,total:organisations.length},{headers:{"Access-Control-Allow-Origin":"*"}})}

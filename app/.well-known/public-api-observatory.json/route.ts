@@ -1,0 +1,1 @@
+export function GET(){return Response.json({name:"SA Public API Observatory",country:"ZA",api:"/api/v1",catalogue:"/catalogue.json",public_infrastructure:"/public-infrastructure.json",za_api_ecosystem:"/za-api-ecosystem.json",schema:"/schemas/resource.schema.json",openapi:"/openapi.json"},{headers:{"Access-Control-Allow-Origin":"*"}})}

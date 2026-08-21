@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Organisation","type":"object","required":["id","slug","name","publisherClass","website"],"properties":{"id":{"type":"string"},"slug":{"type":"string"},"name":{"type":"string"},"publisherClass":{"type":"string"},"website":{"type":"string","format":"uri"}}}

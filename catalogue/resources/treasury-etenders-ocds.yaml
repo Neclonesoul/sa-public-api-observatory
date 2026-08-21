@@ -1,0 +1,29 @@
+id: treasury-etenders-ocds
+slug: treasury-etenders-ocds
+name: eTenders OCDS API
+ecosystem:
+  universe: public-infrastructure
+publisher:
+  organisation_id: national-treasury
+  class: national-government
+access:
+  class: public-api
+  authentication: none
+resource:
+  type: rest-api
+technical:
+  documentation_url: https://ocds-api.etenders.gov.za/swagger/index.html
+  openapi_url: https://ocds-api.etenders.gov.za/swagger/v1/swagger.json
+  formats: [json]
+  standards: [OCDS]
+licensing:
+  status: verified
+  licence: CC BY 4.0
+discovery:
+  sources:
+    - type: official-portal
+      name: National Treasury Transparency Portal
+      url: https://data.etenders.gov.za/
+verification:
+  status: verified
+  verified_at: 2026-08-21T00:00:00+02:00

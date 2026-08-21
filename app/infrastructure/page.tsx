@@ -1,0 +1,3 @@
+import { CatalogueExplorer } from "../../components/CatalogueExplorer"; import { PageHeader, SiteShell } from "../../components/SiteShell"; import { resources } from "../../packages/catalogue/src/catalogue";
+const selected=resources.filter(r=>r.universe==="public-infrastructure"); export const metadata={title:"Public Infrastructure"};
+export default function Page(){return <SiteShell><PageHeader eyebrow="UNIVERSE A · NATIONAL METRIC BOUNDARY" title="Public Data Infrastructure" description="Only resources explicitly classified public-infrastructure. This is the authoritative population for national availability and freshness statistics."/><CatalogueExplorer resources={selected} lockedUniverse="public-infrastructure"/></SiteShell>}

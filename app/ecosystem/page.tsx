@@ -1,0 +1,3 @@
+import { CatalogueExplorer } from "../../components/CatalogueExplorer"; import { PageHeader, SiteShell } from "../../components/SiteShell"; import { resources } from "../../packages/catalogue/src/catalogue";
+const selected=resources.filter(r=>r.universe==="za-api-ecosystem"); export const metadata={title:"ZA API Ecosystem"};
+export default function Page(){return <SiteShell><PageHeader eyebrow="UNIVERSE B · DEVELOPER DISCOVERY" title="Wider ZA API Ecosystem" description="Commercial and community developer APIs with legitimate South African relevance. Never included in public-infrastructure metrics."/><CatalogueExplorer resources={selected} lockedUniverse="za-api-ecosystem"/></SiteShell>}

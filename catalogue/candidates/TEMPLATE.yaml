@@ -1,0 +1,13 @@
+id: candidate-slug
+name: Candidate resource
+status: discovered
+documentation_url: https://official.example/documentation
+proposed_universe: public-infrastructure
+publisher_class: national-government
+access_class: public-api
+authentication: unknown
+licence: unknown
+discovery:
+  type: community-submission
+  source_url: https://example.invalid/evidence
+evidence: []

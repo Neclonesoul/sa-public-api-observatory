@@ -1,0 +1,1 @@
+import{resources}from"../../packages/catalogue/src/catalogue";export function GET(){return Response.json({name:"SA Public API Observatory",generated_at:new Date().toISOString(),resources},{headers:{"Content-Disposition":"inline; filename=sa-api-observatory-catalogue.json","Access-Control-Allow-Origin":"*"}})}

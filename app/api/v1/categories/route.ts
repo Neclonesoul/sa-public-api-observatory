@@ -1,0 +1,1 @@
+import{resources}from"../../../../packages/catalogue/src/catalogue";export function GET(){const data=[...new Set(resources.flatMap(r=>r.categories))].sort().map(id=>({id,name:id.replaceAll("-"," "),resource_count:resources.filter(r=>r.categories.includes(id)).length}));return Response.json({data,total:data.length},{headers:{"Access-Control-Allow-Origin":"*"}})}

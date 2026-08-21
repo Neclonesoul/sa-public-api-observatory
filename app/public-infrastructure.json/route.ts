@@ -1,0 +1,1 @@
+import{resources}from"../../packages/catalogue/src/catalogue";export function GET(){return Response.json({universe:"public-infrastructure",resources:resources.filter(r=>r.universe==="public-infrastructure")},{headers:{"Access-Control-Allow-Origin":"*"}})}

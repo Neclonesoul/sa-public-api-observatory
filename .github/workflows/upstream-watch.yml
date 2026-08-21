@@ -1,0 +1,20 @@
+name: Watch public-apis-za
+on:
+  schedule: [{ cron: "17 4 * * 1" }]
+  workflow_dispatch:
+jobs:
+  candidate-diff:
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: node --import tsx scripts/import-public-apis-za.ts > catalogue/candidates/public-apis-za-import.json
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/public-apis-za-candidates
+          title: "chore: review public-apis-za candidate changes"
+          commit-message: "Update attributed public-apis-za candidate import"
+          body: "Automated discovery diff only. No verified resource or monitoring configuration is changed automatically."

@@ -1,0 +1,1 @@
+import{resources}from"../../packages/catalogue/src/catalogue";export function GET(){return Response.json({universe:"za-api-ecosystem",resources:resources.filter(r=>r.universe==="za-api-ecosystem")},{headers:{"Access-Control-Allow-Origin":"*"}})}
