@@ -46,6 +46,17 @@ npm test
 
 See [docs/TERMUX.md](docs/TERMUX.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
+
+## Production
+
+- Observatory: https://api-observatory-za.tysonbarnes.co.uk
+- API: https://api-observatory-za.tysonbarnes.co.uk/api/v1
+- OpenAPI: https://api-observatory-za.tysonbarnes.co.uk/openapi.json
+- Monitoring cadence: every 15 minutes
+- Production measurements are append-only observations stored in Cloudflare D1.
+- National metrics include only the `public-infrastructure` universe.
+- The initial production monitoring cohort contains seven independently reviewed public-infrastructure endpoints.
+
 ## Machine access
 
 - `/api/v1/resources`
