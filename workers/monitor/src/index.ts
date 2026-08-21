@@ -1,4 +1,5 @@
 import { assertSafeProbeUrl } from "../../../packages/monitor-core/src/url-safety";
+import { shouldOpenIncident } from "../../../packages/monitor-core/src/status";
 
 interface Env { DB: D1Database; MONITOR_LIMIT?: string }
 interface Endpoint { id:string; resource_id:string; url:string; method:string; timeout_ms:number }
@@ -15,7 +16,201 @@ async function probe(endpoint:Endpoint){
   }catch(error){return{success:false,httpStatus:null,latencyMs:Math.round((performance.now()-started)*10)/10,responseBytes:null,contentType:null,validationResult:"request-failed",errorClass:classifyError(error),payloadHash:null,schemaHash:null}}finally{clearTimeout(timer)}
 }
 
-async function run(env:Env){const limit=Math.min(25,Math.max(1,Number(env.MONITOR_LIMIT??10)));const{results=[]}=await env.DB.prepare("SELECT id, resource_id, url, method, timeout_ms FROM endpoints WHERE enabled = 1 ORDER BY id LIMIT ?").bind(limit).all<Endpoint>();let completed=0;for(const endpoint of results){const result=await probe(endpoint);const id=crypto.randomUUID(),observedAt=new Date().toISOString();await env.DB.prepare("INSERT INTO measurements (id, endpoint_id, observed_at, success, http_status, latency_ms, response_bytes, content_type, validation_result, error_class, payload_hash, schema_hash, freshness_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)").bind(id,endpoint.id,observedAt,result.success?1:0,result.httpStatus,result.latencyMs,result.responseBytes,result.contentType,result.validationResult,result.errorClass,result.payloadHash,result.schemaHash).run();completed++}await env.DB.prepare("INSERT INTO system_state (key,value,updated_at) VALUES ('last_monitor_cycle',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(JSON.stringify({completed}),new Date().toISOString()).run();return{completed}}
+interface RecentMeasurement {
+  id: string;
+  observed_at: string;
+  success: number;
+  http_status: number | null;
+  validation_result: string;
+  error_class: string | null;
+}
+
+interface OpenIncident {
+  id: string;
+}
+
+function describeFailure(row: RecentMeasurement): string {
+  if (row.error_class) return row.error_class;
+  if (row.http_status !== null) return `http-${row.http_status}`;
+  return row.validation_result || "unknown";
+}
+
+function isIncidentEligible(row: RecentMeasurement): boolean {
+  // Authentication and rate-limiting are explicit operational states,
+  // not transport outages.
+  return !(
+    row.http_status === 401 ||
+    row.http_status === 403 ||
+    row.http_status === 429
+  );
+}
+
+async function updateIncidentLifecycle(
+  env: Env,
+  endpoint: Endpoint,
+  measurementId: string,
+) {
+  const openIncident = await env.DB
+    .prepare(
+      "SELECT id FROM incidents WHERE endpoint_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(endpoint.id)
+    .first<OpenIncident>();
+
+  const { results = [] } = await env.DB
+    .prepare(
+      `SELECT
+         id,
+         observed_at,
+         success,
+         http_status,
+         validation_result,
+         error_class
+       FROM measurements
+       WHERE endpoint_id = ?
+       ORDER BY observed_at DESC
+       LIMIT 3`,
+    )
+    .bind(endpoint.id)
+    .all<RecentMeasurement>();
+
+  if (!results.length) return;
+
+  const latest = results[0];
+
+  // A genuinely successful probe closes an existing incident.
+  if (latest.success === 1) {
+    if (openIncident) {
+      await env.DB
+        .prepare(
+          `UPDATE incidents
+           SET ended_at = ?,
+               recovery_observation = ?
+           WHERE id = ?
+             AND ended_at IS NULL`,
+        )
+        .bind(latest.observed_at, measurementId, openIncident.id)
+        .run();
+    }
+    return;
+  }
+
+  // Auth-required and rate-limited observations remain measurements,
+  // but must not create outage incidents.
+  if (!isIncidentEligible(latest)) return;
+
+  const failure = describeFailure(latest);
+
+  // Once an incident is open, keep one incident per endpoint and append
+  // the continuing failure state to that incident.
+  if (openIncident) {
+    await env.DB
+      .prepare(
+        `UPDATE incidents
+         SET last_error = ?,
+             probe_count = probe_count + 1
+         WHERE id = ?
+           AND ended_at IS NULL`,
+      )
+      .bind(failure, openIncident.id)
+      .run();
+    return;
+  }
+
+  // Convert newest-first database rows into chronological ProbeResults.
+  const chronological = [...results].reverse().map((row) => ({
+    observedAt: row.observed_at,
+    success: row.success === 1,
+    httpStatus: row.http_status,
+    validPayload: row.validation_result === "valid",
+    errorClass: row.error_class,
+  }));
+
+  if (!shouldOpenIncident(chronological)) return;
+
+  // All three observations must also be outage-eligible. This prevents
+  // authentication/rate-limit responses from becoming outage incidents.
+  if (!results.every(isIncidentEligible)) return;
+
+  const oldestFailure = results[results.length - 1];
+  const firstError = describeFailure(oldestFailure);
+
+  await env.DB
+    .prepare(
+      `INSERT INTO incidents (
+         id,
+         resource_id,
+         endpoint_id,
+         started_at,
+         ended_at,
+         classification,
+         first_error,
+         last_error,
+         probe_count,
+         recovery_observation
+       )
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      endpoint.resource_id,
+      endpoint.id,
+      oldestFailure.observed_at,
+      "transport-outage",
+      firstError,
+      failure,
+      results.length,
+    )
+    .run();
+}
+
+async function run(env:Env){
+  const limit=Math.min(25,Math.max(1,Number(env.MONITOR_LIMIT??10)));
+  const{results=[]}=await env.DB
+    .prepare("SELECT id, resource_id, url, method, timeout_ms FROM endpoints WHERE enabled = 1 ORDER BY id LIMIT ?")
+    .bind(limit)
+    .all<Endpoint>();
+
+  let completed=0;
+
+  for(const endpoint of results){
+    const result=await probe(endpoint);
+    const id=crypto.randomUUID();
+    const observedAt=new Date().toISOString();
+
+    await env.DB
+      .prepare(
+        "INSERT INTO measurements (id, endpoint_id, observed_at, success, http_status, latency_ms, response_bytes, content_type, validation_result, error_class, payload_hash, schema_hash, freshness_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+      )
+      .bind(
+        id,
+        endpoint.id,
+        observedAt,
+        result.success?1:0,
+        result.httpStatus,
+        result.latencyMs,
+        result.responseBytes,
+        result.contentType,
+        result.validationResult,
+        result.errorClass,
+        result.payloadHash,
+        result.schemaHash,
+      )
+      .run();
+
+    await updateIncidentLifecycle(env, endpoint, id);
+    completed++;
+  }
+
+  await env.DB
+    .prepare(
+      "INSERT INTO system_state (key,value,updated_at) VALUES ('last_monitor_cycle',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+    )
+    .bind(JSON.stringify({completed}),new Date().toISOString())
+    .run();
+
+  return{completed};
+}
 
 const monitorWorker={async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext){ctx.waitUntil(run(env))},async fetch(request:Request,env:Env){if(new URL(request.url).pathname!=="/health")return new Response("Not found",{status:404});const row=await env.DB.prepare("SELECT value,updated_at FROM system_state WHERE key='last_monitor_cycle'").first();return Response.json({service:"monitor",last_cycle:row??null})}};
 export default monitorWorker;
