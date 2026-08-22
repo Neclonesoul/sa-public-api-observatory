@@ -164,52 +164,81 @@ async function updateIncidentLifecycle(
     .run();
 }
 
-async function run(env:Env){
-  const limit=Math.min(25,Math.max(1,Number(env.MONITOR_LIMIT??10)));
-  const{results=[]}=await env.DB
-    .prepare("SELECT id, resource_id, url, method, timeout_ms FROM endpoints WHERE enabled = 1 ORDER BY id LIMIT ?")
+async function run(env: Env) {
+  const limit = Math.min(
+    25,
+    Math.max(1, Number(env.MONITOR_LIMIT ?? 10)),
+  );
+
+  const { results = [] } = await env.DB
+    .prepare(
+      "SELECT id, resource_id, url, method, timeout_ms FROM endpoints WHERE enabled = 1 ORDER BY id LIMIT ?",
+    )
     .bind(limit)
     .all<Endpoint>();
 
-  let completed=0;
+  const concurrency = Math.min(4, Math.max(1, results.length));
+  let cursor = 0;
+  let completed = 0;
 
-  for(const endpoint of results){
-    const result=await probe(endpoint);
-    const id=crypto.randomUUID();
-    const observedAt=new Date().toISOString();
+  async function worker() {
+    while (true) {
+      const index = cursor++;
+      if (index >= results.length) return;
 
-    await env.DB
-      .prepare(
-        "INSERT INTO measurements (id, endpoint_id, observed_at, success, http_status, latency_ms, response_bytes, content_type, validation_result, error_class, payload_hash, schema_hash, freshness_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-      )
-      .bind(
-        id,
-        endpoint.id,
-        observedAt,
-        result.success?1:0,
-        result.httpStatus,
-        result.latencyMs,
-        result.responseBytes,
-        result.contentType,
-        result.validationResult,
-        result.errorClass,
-        result.payloadHash,
-        result.schemaHash,
-      )
-      .run();
+      const endpoint = results[index];
+      const result = await probe(endpoint);
 
-    await updateIncidentLifecycle(env, endpoint, id);
-    completed++;
+      const id = crypto.randomUUID();
+      const observedAt = new Date().toISOString();
+
+      await env.DB
+        .prepare(
+          "INSERT INTO measurements (id, endpoint_id, observed_at, success, http_status, latency_ms, response_bytes, content_type, validation_result, error_class, payload_hash, schema_hash, freshness_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+        )
+        .bind(
+          id,
+          endpoint.id,
+          observedAt,
+          result.success ? 1 : 0,
+          result.httpStatus,
+          result.latencyMs,
+          result.responseBytes,
+          result.contentType,
+          result.validationResult,
+          result.errorClass,
+          result.payloadHash,
+          result.schemaHash,
+        )
+        .run();
+
+      await updateIncidentLifecycle(env, endpoint, id);
+
+      completed++;
+    }
   }
+
+  await Promise.all(
+    Array.from({ length: concurrency }, () => worker()),
+  );
 
   await env.DB
     .prepare(
       "INSERT INTO system_state (key,value,updated_at) VALUES ('last_monitor_cycle',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
     )
-    .bind(JSON.stringify({completed}),new Date().toISOString())
+    .bind(
+      JSON.stringify({
+        completed,
+        concurrency,
+      }),
+      new Date().toISOString(),
+    )
     .run();
 
-  return{completed};
+  return {
+    completed,
+    concurrency,
+  };
 }
 
 const monitorWorker={async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext){ctx.waitUntil(run(env))},async fetch(request:Request,env:Env){if(new URL(request.url).pathname!=="/health")return new Response("Not found",{status:404});const row=await env.DB.prepare("SELECT value,updated_at FROM system_state WHERE key='last_monitor_cycle'").first();return Response.json({service:"monitor",last_cycle:row??null})}};
