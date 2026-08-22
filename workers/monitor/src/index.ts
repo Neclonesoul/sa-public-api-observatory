@@ -378,6 +378,7 @@ async function run(env: Env) {
   const concurrency = Math.min(4, Math.max(1, results.length));
   let cursor = 0;
   let completed = 0;
+  let freshnessExtracted = 0;
 
   async function worker() {
     while (true) {
@@ -412,6 +413,8 @@ async function run(env: Env) {
         .run();
 
       if (result.success && result.freshness) {
+        freshnessExtracted++;
+
         await env.DB
           .prepare(
             `INSERT INTO freshness_observations (
@@ -453,6 +456,8 @@ async function run(env: Env) {
       JSON.stringify({
         completed,
         concurrency,
+        freshnessExtracted,
+        workerRevision: "freshness-v1",
       }),
       new Date().toISOString(),
     )
@@ -461,6 +466,7 @@ async function run(env: Env) {
   return {
     completed,
     concurrency,
+    freshnessExtracted,
   };
 }
 
