@@ -27,12 +27,191 @@ function resolveProbeUrl(endpoint: Endpoint): string {
   return url.toString();
 }
 
-async function probe(endpoint:Endpoint){
-  const url=assertSafeProbeUrl(resolveProbeUrl(endpoint));const started=performance.now();const controller=new AbortController();const timer=setTimeout(()=>controller.abort("timeout"),Math.min(endpoint.timeout_ms,15000));
-  try{const response=await fetch(url,{method:endpoint.method==="HEAD"?"HEAD":"GET",redirect:"manual",signal:controller.signal,headers:{"User-Agent":"SA-Public-API-Observatory/1.0","Accept":"application/json, application/xml, text/csv;q=0.8, */*;q=0.2"}});if(response.status>=300&&response.status<400){const location=response.headers.get("location");if(location)assertSafeProbeUrl(new URL(location,url).toString())}
-    const reader=response.body?.getReader();let size=0;const chunks:Uint8Array[]=[];while(reader){const{done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>1_000_000){await reader.cancel();break}chunks.push(value)}const body=new TextDecoder().decode(chunks.reduce((all,chunk)=>{const next=new Uint8Array(all.length+chunk.length);next.set(all);next.set(chunk,all.length);return next},new Uint8Array()));const contentType=response.headers.get("content-type")??"";let validPayload=size>20;let schemaHash:string|null=null;if(contentType.includes("json")){try{const parsed=JSON.parse(body);schemaHash=await sha256(JSON.stringify(structuralShape(parsed)))}catch{validPayload=false}}
-    return{success:response.ok&&validPayload,httpStatus:response.status,latencyMs:Math.round((performance.now()-started)*10)/10,responseBytes:size,contentType,validationResult:validPayload?"valid":"invalid-payload",errorClass:response.ok?(validPayload?null:"invalid-payload"):`http-${Math.floor(response.status/100)}xx`,payloadHash:await sha256(body),schemaHash};
-  }catch(error){return{success:false,httpStatus:null,latencyMs:Math.round((performance.now()-started)*10)/10,responseBytes:null,contentType:null,validationResult:"request-failed",errorClass:classifyError(error),payloadHash:null,schemaHash:null}}finally{clearTimeout(timer)}
+
+interface FreshnessResult {
+  timestamp: string;
+  state: "fresh" | "due" | "late" | "stale";
+  strategy: string;
+}
+
+function classifyDailyFreshness(timestamp: string): FreshnessResult["state"] {
+  const ageMs = Date.now() - new Date(timestamp).getTime();
+  const ageDays = ageMs / 86_400_000;
+
+  if (ageDays <= 2) return "fresh";
+  if (ageDays <= 3) return "due";
+  if (ageDays <= 7) return "late";
+  return "stale";
+}
+
+function newestTimestamp(values: unknown[]): string | null {
+  const timestamps = values
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime());
+
+  return timestamps[0]?.toISOString() ?? null;
+}
+
+function extractFreshness(
+  endpoint: Endpoint,
+  payload: unknown,
+): FreshnessResult | null {
+  if (endpoint.id === "ep-etenders-ocds") {
+    if (!payload || typeof payload !== "object") return null;
+
+    const releases = (payload as { releases?: unknown }).releases;
+    if (!Array.isArray(releases)) return null;
+
+    const timestamp = newestTimestamp(
+      releases.map((release) =>
+        release && typeof release === "object"
+          ? (release as { date?: unknown }).date
+          : null,
+      ),
+    );
+
+    if (!timestamp) return null;
+
+    return {
+      timestamp,
+      state: classifyDailyFreshness(timestamp),
+      strategy: "ocds-release-date",
+    };
+  }
+
+  if (
+    endpoint.id === "ep-sarb-market-rates" ||
+    endpoint.id === "ep-sarb-statistical-query"
+  ) {
+    if (!Array.isArray(payload)) return null;
+
+    const timestamp = newestTimestamp(
+      payload.map((item) =>
+        item && typeof item === "object"
+          ? (item as { Date?: unknown }).Date
+          : null,
+      ),
+    );
+
+    if (!timestamp) return null;
+
+    return {
+      timestamp,
+      state: classifyDailyFreshness(timestamp),
+      strategy: "sarb-indicator-date",
+    };
+  }
+
+  return null;
+}
+
+async function probe(endpoint: Endpoint) {
+  const url = assertSafeProbeUrl(resolveProbeUrl(endpoint));
+  const started = performance.now();
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort("timeout"),
+    Math.min(endpoint.timeout_ms, 15000),
+  );
+
+  try {
+    const response = await fetch(url, {
+      method: endpoint.method === "HEAD" ? "HEAD" : "GET",
+      redirect: "manual",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "SA-Public-API-Observatory/1.0",
+        Accept: "application/json, application/xml, text/csv;q=0.8, */*;q=0.2",
+      },
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (location) {
+        assertSafeProbeUrl(new URL(location, url).toString());
+      }
+    }
+
+    const reader = response.body?.getReader();
+    let size = 0;
+    const chunks: Uint8Array[] = [];
+
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      size += value.byteLength;
+
+      if (size > 1_000_000) {
+        await reader.cancel();
+        break;
+      }
+
+      chunks.push(value);
+    }
+
+    const body = new TextDecoder().decode(
+      chunks.reduce((all, chunk) => {
+        const next = new Uint8Array(all.length + chunk.length);
+        next.set(all);
+        next.set(chunk, all.length);
+        return next;
+      }, new Uint8Array()),
+    );
+
+    const contentType = response.headers.get("content-type") ?? "";
+    let validPayload = size > 20;
+    let schemaHash: string | null = null;
+    let freshness: FreshnessResult | null = null;
+
+    if (contentType.includes("json")) {
+      try {
+        const parsed = JSON.parse(body);
+
+        schemaHash = await sha256(
+          JSON.stringify(structuralShape(parsed)),
+        );
+
+        freshness = extractFreshness(endpoint, parsed);
+      } catch {
+        validPayload = false;
+      }
+    }
+
+    return {
+      success: response.ok && validPayload,
+      httpStatus: response.status,
+      latencyMs: Math.round((performance.now() - started) * 10) / 10,
+      responseBytes: size,
+      contentType,
+      validationResult: validPayload ? "valid" : "invalid-payload",
+      errorClass: response.ok
+        ? validPayload
+          ? null
+          : "invalid-payload"
+        : `http-${Math.floor(response.status / 100)}xx`,
+      payloadHash: await sha256(body),
+      schemaHash,
+      freshness,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      httpStatus: null,
+      latencyMs: Math.round((performance.now() - started) * 10) / 10,
+      responseBytes: null,
+      contentType: null,
+      validationResult: "request-failed",
+      errorClass: classifyError(error),
+      payloadHash: null,
+      schemaHash: null,
+      freshness: null,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 interface RecentMeasurement {
@@ -213,7 +392,7 @@ async function run(env: Env) {
 
       await env.DB
         .prepare(
-          "INSERT INTO measurements (id, endpoint_id, observed_at, success, http_status, latency_ms, response_bytes, content_type, validation_result, error_class, payload_hash, schema_hash, freshness_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+          "INSERT INTO measurements (id, endpoint_id, observed_at, success, http_status, latency_ms, response_bytes, content_type, validation_result, error_class, payload_hash, schema_hash, freshness_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(
           id,
@@ -228,8 +407,33 @@ async function run(env: Env) {
           result.errorClass,
           result.payloadHash,
           result.schemaHash,
+          result.freshness?.timestamp ?? null,
         )
         .run();
+
+      if (result.success && result.freshness) {
+        await env.DB
+          .prepare(
+            `INSERT INTO freshness_observations (
+               id,
+               resource_id,
+               observed_at,
+               state,
+               extracted_timestamp,
+               strategy
+             )
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            endpoint.resource_id,
+            observedAt,
+            result.freshness.state,
+            result.freshness.timestamp,
+            result.freshness.strategy,
+          )
+          .run();
+      }
 
       await updateIncidentLifecycle(env, endpoint, id);
 
