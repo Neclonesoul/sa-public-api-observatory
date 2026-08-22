@@ -8,8 +8,27 @@ function classifyError(error:unknown){const m=error instanceof Error?error.messa
 async function sha256(value:string){const bytes=new TextEncoder().encode(value);const hash=await crypto.subtle.digest("SHA-256",bytes);return[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("")}
 function structuralShape(value:unknown):unknown{if(Array.isArray(value))return value.length?[structuralShape(value[0])]:[];if(value&&typeof value==="object")return Object.fromEntries(Object.entries(value as Record<string,unknown>).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,structuralShape(v)]));return typeof value}
 
+function resolveProbeUrl(endpoint: Endpoint): string {
+  if (endpoint.id !== "ep-etenders-ocds") {
+    return endpoint.url;
+  }
+
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+
+  const format = (value: Date) => value.toISOString().slice(0, 10);
+
+  const url = new URL(endpoint.url);
+  url.searchParams.set("dateFrom", format(yesterday));
+  url.searchParams.set("dateTo", format(today));
+  url.searchParams.set("PageNumber", "1");
+  url.searchParams.set("PageSize", "1");
+
+  return url.toString();
+}
+
 async function probe(endpoint:Endpoint){
-  const url=assertSafeProbeUrl(endpoint.url);const started=performance.now();const controller=new AbortController();const timer=setTimeout(()=>controller.abort("timeout"),Math.min(endpoint.timeout_ms,15000));
+  const url=assertSafeProbeUrl(resolveProbeUrl(endpoint));const started=performance.now();const controller=new AbortController();const timer=setTimeout(()=>controller.abort("timeout"),Math.min(endpoint.timeout_ms,15000));
   try{const response=await fetch(url,{method:endpoint.method==="HEAD"?"HEAD":"GET",redirect:"manual",signal:controller.signal,headers:{"User-Agent":"SA-Public-API-Observatory/1.0","Accept":"application/json, application/xml, text/csv;q=0.8, */*;q=0.2"}});if(response.status>=300&&response.status<400){const location=response.headers.get("location");if(location)assertSafeProbeUrl(new URL(location,url).toString())}
     const reader=response.body?.getReader();let size=0;const chunks:Uint8Array[]=[];while(reader){const{done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>1_000_000){await reader.cancel();break}chunks.push(value)}const body=new TextDecoder().decode(chunks.reduce((all,chunk)=>{const next=new Uint8Array(all.length+chunk.length);next.set(all);next.set(chunk,all.length);return next},new Uint8Array()));const contentType=response.headers.get("content-type")??"";let validPayload=size>20;let schemaHash:string|null=null;if(contentType.includes("json")){try{const parsed=JSON.parse(body);schemaHash=await sha256(JSON.stringify(structuralShape(parsed)))}catch{validPayload=false}}
     return{success:response.ok&&validPayload,httpStatus:response.status,latencyMs:Math.round((performance.now()-started)*10)/10,responseBytes:size,contentType,validationResult:validPayload?"valid":"invalid-payload",errorClass:response.ok?(validPayload?null:"invalid-payload"):`http-${Math.floor(response.status/100)}xx`,payloadHash:await sha256(body),schemaHash};
