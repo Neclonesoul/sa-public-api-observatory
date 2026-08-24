@@ -1,0 +1,33 @@
+{
+  "source": "sinditech/public-apis-za",
+  "entriesDiscovered": 2,
+  "existingResources": 0,
+  "newCandidates": 2,
+  "potentialDuplicates": 0,
+  "rejectedMalformed": 11,
+  "verifiedResourcesModified": 0,
+  "candidates": [
+    {
+      "sourceExternalId": "learn-more-about-public-apis:issues",
+      "name": "Issues",
+      "documentationUrl": "https://github.com/sinditech/public-apis-za/issues",
+      "sourceCategory": "Learn more about Public APIs",
+      "sourceFirstSeen": "2026-08-24T17:21:33.614Z",
+      "sourceLastSeen": "2026-08-24T17:21:33.614Z",
+      "sourceHash": "cf92301205f7e92928cf227a54d108ed2734f28e28799a3be233338c77bd234a",
+      "sourcePresence": "present",
+      "status": "discovered"
+    },
+    {
+      "sourceExternalId": "learn-more-about-public-apis:pull-requests",
+      "name": "Pull Requests",
+      "documentationUrl": "https://github.com/sinditech/public-apis-za/pulls",
+      "sourceCategory": "Learn more about Public APIs",
+      "sourceFirstSeen": "2026-08-24T17:21:33.614Z",
+      "sourceLastSeen": "2026-08-24T17:21:33.614Z",
+      "sourceHash": "90fe78e06f49b2a93f4e66bf1734bd90f3aca068a97c94af287bf9fc041e1a23",
+      "sourcePresence": "present",
+      "status": "discovered"
+    }
+  ]
+}
