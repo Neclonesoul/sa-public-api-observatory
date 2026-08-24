@@ -362,6 +362,64 @@ async function updateIncidentLifecycle(
     .run();
 }
 
+
+interface PreviousSchemaMeasurement {
+  schema_hash: string | null;
+}
+
+async function recordSchemaChange(
+  env: Env,
+  endpoint: Endpoint,
+  measurementId: string,
+  observedAt: string,
+  currentSchemaHash: string | null,
+) {
+  if (!currentSchemaHash) return;
+
+  const previous = await env.DB
+    .prepare(`
+      SELECT schema_hash
+      FROM measurements
+      WHERE
+        endpoint_id = ?
+        AND id <> ?
+        AND schema_hash IS NOT NULL
+      ORDER BY observed_at DESC
+      LIMIT 1
+    `)
+    .bind(endpoint.id, measurementId)
+    .first<PreviousSchemaMeasurement>();
+
+  if (!previous?.schema_hash) return;
+  if (previous.schema_hash === currentSchemaHash) return;
+
+  await env.DB
+    .prepare(`
+      INSERT OR IGNORE INTO resource_changes (
+        id,
+        resource_id,
+        endpoint_id,
+        measurement_id,
+        observed_at,
+        change_type,
+        previous_hash,
+        current_hash
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .bind(
+      crypto.randomUUID(),
+      endpoint.resource_id,
+      endpoint.id,
+      measurementId,
+      observedAt,
+      "schema-signature-changed",
+      previous.schema_hash,
+      currentSchemaHash,
+    )
+    .run();
+}
+
 async function run(env: Env) {
   const limit = Math.min(
     25,
@@ -411,6 +469,16 @@ async function run(env: Env) {
           result.freshness?.timestamp ?? null,
         )
         .run();
+
+      if (result.success) {
+        await recordSchemaChange(
+          env,
+          endpoint,
+          id,
+          observedAt,
+          result.schemaHash,
+        );
+      }
 
       if (result.success && result.freshness) {
         freshnessExtracted++;
