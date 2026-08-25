@@ -1,2 +1,59 @@
-import{notFound}from"next/navigation";import{CatalogueExplorer}from"../../../components/CatalogueExplorer";import{PageHeader,SiteShell}from"../../../components/SiteShell";import{organisations,resources}from"../../../packages/catalogue/src/catalogue";
-export function generateStaticParams(){return organisations.map(o=>({slug:o.slug}))}export default async function Page({params}:{params:Promise<{slug:string}>}){const{slug}=await params;const o=organisations.find(x=>x.slug===slug);if(!o)notFound();return <SiteShell><PageHeader eyebrow={o.publisherClass.replaceAll("-"," ")} title={o.name} description={`${resources.filter(r=>r.organisationId===o.id).length} verified resources in the Observatory catalogue.`}/><CatalogueExplorer resources={resources.filter(r=>r.organisationId===o.id)}/></SiteShell>}
+import { notFound } from "next/navigation";
+
+import { CatalogueExplorer } from "../../../components/CatalogueExplorer";
+import {
+  PageHeader,
+  SiteShell,
+} from "../../../components/SiteShell";
+import { getLiveResourceStates } from "../../../lib/live-resource-state";
+import {
+  organisations,
+  resources,
+} from "../../../packages/catalogue/src/catalogue";
+
+export const dynamic = "force-dynamic";
+
+export function generateStaticParams() {
+  return organisations.map((organisation) => ({
+    slug: organisation.slug,
+  }));
+}
+
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+
+  const organisation = organisations.find(
+    (item) => item.slug === slug,
+  );
+
+  if (!organisation) notFound();
+
+  const selected = resources.filter(
+    (resource) =>
+      resource.organisationId === organisation.id,
+  );
+
+  const liveStates = await getLiveResourceStates();
+
+  return (
+    <SiteShell>
+      <PageHeader
+        eyebrow={organisation.publisherClass.replaceAll(
+          "-",
+          " ",
+        )}
+        title={organisation.name}
+        description={`${selected.length} verified resources in the Observatory catalogue.`}
+      />
+
+      <CatalogueExplorer
+        resources={selected}
+        liveStates={liveStates}
+      />
+    </SiteShell>
+  );
+}
