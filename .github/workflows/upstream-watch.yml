@@ -1,18 +1,53 @@
 name: Watch public-apis-za
+
 on:
-  schedule: [{ cron: "17 4 * * 1" }]
+  schedule:
+    - cron: "17 4 * * 1"
   workflow_dispatch:
+
 jobs:
   candidate-diff:
     runs-on: ubuntu-latest
-    permissions: { contents: write, pull-requests: write }
+    permissions:
+      contents: write
+      pull-requests: write
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with:
+          node-version: 22
+          cache: npm
+
       - run: npm ci
-      - run: node --import tsx scripts/import-public-apis-za.ts > catalogue/candidates/public-apis-za-import.json
-      - uses: peter-evans/create-pull-request@v7
+
+      - name: Generate candidate import
+        run: |
+          mkdir -p catalogue/candidates
+          node --import tsx scripts/import-public-apis-za.ts \
+            > catalogue/candidates/public-apis-za-import.json
+
+      - name: Detect genuine candidates
+        id: candidates
+        run: |
+          count="$(node -e "
+            const fs = require('fs');
+            const data = JSON.parse(
+              fs.readFileSync(
+                'catalogue/candidates/public-apis-za-import.json',
+                'utf8'
+              )
+            );
+            process.stdout.write(String(data.newCandidates ?? 0));
+          ")"
+
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Discovered genuine candidates: $count"
+
+      - name: Create review pull request
+        if: steps.candidates.outputs.count != '0'
+        uses: peter-evans/create-pull-request@v7
         with:
           branch: automation/public-apis-za-candidates
           title: "chore: review public-apis-za candidate changes"
