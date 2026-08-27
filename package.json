@@ -17,7 +17,8 @@
     "generate:exports": "node --import tsx scripts/generate-exports.ts",
     "seed:sql": "node --import tsx scripts/seed-d1.ts",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
+    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
+    "dev:cloudflare": "npm run build && wrangler dev"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
@@ -41,8 +42,17 @@
     "typescript": "5.9.3",
     "vinext": "0.0.50",
     "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "wrangler": "^4.127.0"
   },
   "type": "module",
-  "displayName": "SA Public API Observatory"
+  "displayName": "SA Public API Observatory",
+  "allowScripts": {
+    "esbuild@0.28.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.27.3": true,
+    "esbuild@0.18.20": true,
+    "sharp@0.34.5": true,
+    "unrs-resolver@1.11.1": true,
+    "workerd@1.20260515.1": true
+  }
 }

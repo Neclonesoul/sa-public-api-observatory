@@ -476,6 +476,20 @@ npm run build
 
 Production Cloudflare builds and deployments run on Linux through GitHub Actions.
 
+### ARCHMAC / Linux
+
+A normal Linux x86_64 workstation can run the complete local Cloudflare runtime.
+
+After installing dependencies and initializing the local D1 database:
+
+~~~bash
+npm run dev:cloudflare
+~~~
+
+This performs the production-style Vinext build and launches the generated Worker through Wrangler/workerd on the isolated local Cloudflare bindings.
+
+The local D1 database is separate from production.
+
 ### Android / Termux
 
 Android/Termux is supported for repository work, tests, Git, and GitHub workflows.
