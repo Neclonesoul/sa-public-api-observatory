@@ -1,5 +1,10 @@
 import { assertSafeProbeUrl } from "../../../packages/monitor-core/src/url-safety";
 import { shouldOpenIncident } from "../../../packages/monitor-core/src/status";
+import {
+  INSERT_MEASUREMENT_SQL,
+  UPSERT_CURRENT_ENDPOINT_STATE_SQL,
+  UPSERT_DAILY_ENDPOINT_STATS_SQL,
+} from "../../../packages/monitor-core/src/persistence";
 
 interface Env { DB: D1Database; MONITOR_LIMIT?: string }
 interface Endpoint { id:string; resource_id:string; url:string; method:string; timeout_ms:number }
@@ -363,35 +368,17 @@ async function updateIncidentLifecycle(
 }
 
 
-interface PreviousSchemaMeasurement {
-  schema_hash: string | null;
-}
-
 async function recordSchemaChange(
   env: Env,
   endpoint: Endpoint,
   measurementId: string,
   observedAt: string,
+  previousSchemaHash: string | null,
   currentSchemaHash: string | null,
 ) {
   if (!currentSchemaHash) return;
-
-  const previous = await env.DB
-    .prepare(`
-      SELECT schema_hash
-      FROM measurements
-      WHERE
-        endpoint_id = ?
-        AND id <> ?
-        AND schema_hash IS NOT NULL
-      ORDER BY observed_at DESC
-      LIMIT 1
-    `)
-    .bind(endpoint.id, measurementId)
-    .first<PreviousSchemaMeasurement>();
-
-  if (!previous?.schema_hash) return;
-  if (previous.schema_hash === currentSchemaHash) return;
+  if (!previousSchemaHash) return;
+  if (previousSchemaHash === currentSchemaHash) return;
 
   await env.DB
     .prepare(`
@@ -414,7 +401,7 @@ async function recordSchemaChange(
       measurementId,
       observedAt,
       "schema-signature-changed",
-      previous.schema_hash,
+      previousSchemaHash,
       currentSchemaHash,
     )
     .run();
@@ -448,27 +435,68 @@ async function run(env: Env) {
 
       const id = crypto.randomUUID();
       const observedAt = new Date().toISOString();
+      const day = observedAt.slice(0, 10);
 
-      await env.DB
+      const previousState = await env.DB
         .prepare(
-          "INSERT INTO measurements (id, endpoint_id, observed_at, success, http_status, latency_ms, response_bytes, content_type, validation_result, error_class, payload_hash, schema_hash, freshness_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          `SELECT schema_hash
+           FROM current_endpoint_state
+           WHERE endpoint_id = ?
+           LIMIT 1`,
         )
-        .bind(
-          id,
-          endpoint.id,
-          observedAt,
-          result.success ? 1 : 0,
-          result.httpStatus,
-          result.latencyMs,
-          result.responseBytes,
-          result.contentType,
-          result.validationResult,
-          result.errorClass,
-          result.payloadHash,
-          result.schemaHash,
-          result.freshness?.timestamp ?? null,
-        )
-        .run();
+        .bind(endpoint.id)
+        .first<{ schema_hash: string | null }>();
+
+      const successValue = result.success ? 1 : 0;
+      const latencyValue = result.latencyMs ?? 0;
+      const latencySamples = result.latencyMs === null ? 0 : 1;
+
+      await env.DB.batch([
+        env.DB
+          .prepare(INSERT_MEASUREMENT_SQL)
+          .bind(
+            id,
+            endpoint.id,
+            observedAt,
+            successValue,
+            result.httpStatus,
+            result.latencyMs,
+            result.responseBytes,
+            result.contentType,
+            result.validationResult,
+            result.errorClass,
+            result.payloadHash,
+            result.schemaHash,
+            result.freshness?.timestamp ?? null,
+          ),
+
+        env.DB
+          .prepare(UPSERT_CURRENT_ENDPOINT_STATE_SQL)
+          .bind(
+            endpoint.id,
+            endpoint.resource_id,
+            id,
+            successValue,
+            result.httpStatus,
+            result.latencyMs,
+            result.validationResult,
+            result.errorClass,
+            result.schemaHash,
+            observedAt,
+          ),
+
+        env.DB
+          .prepare(UPSERT_DAILY_ENDPOINT_STATS_SQL)
+          .bind(
+            day,
+            endpoint.id,
+            endpoint.resource_id,
+            1,
+            successValue,
+            latencyValue,
+            latencySamples,
+          ),
+      ]);
 
       if (result.success) {
         await recordSchemaChange(
@@ -476,6 +504,7 @@ async function run(env: Env) {
           endpoint,
           id,
           observedAt,
+          previousState?.schema_hash ?? null,
           result.schemaHash,
         );
       }

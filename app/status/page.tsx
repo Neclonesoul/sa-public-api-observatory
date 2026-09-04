@@ -67,27 +67,33 @@ export default async function Page() {
     .prepare(`
       WITH ranked AS (
         SELECT
-          r.id AS resource_id,
+          ces.resource_id,
           r.name AS resource_name,
-          e.id AS endpoint_id,
-          m.success,
-          m.http_status,
-          m.latency_ms,
-          m.observed_at,
-          m.error_class,
+          ces.endpoint_id,
+          ces.success,
+          ces.http_status,
+          ces.latency_ms,
+          ces.observed_at,
+          ces.error_class,
+
           ROW_NUMBER() OVER (
-            PARTITION BY e.resource_id
-            ORDER BY m.observed_at DESC
+            PARTITION BY ces.resource_id
+            ORDER BY ces.observed_at DESC
           ) AS rn
-        FROM endpoints e
+
+        FROM current_endpoint_state ces
+
+        INNER JOIN endpoints e
+          ON e.id = ces.endpoint_id
+
         INNER JOIN resources r
-          ON r.id = e.resource_id
-        INNER JOIN measurements m
-          ON m.endpoint_id = e.id
+          ON r.id = ces.resource_id
+
         WHERE
           e.enabled = 1
           AND r.ecosystem_universe = 'public-infrastructure'
       )
+
       SELECT
         resource_id,
         resource_name,
@@ -97,57 +103,64 @@ export default async function Page() {
         latency_ms,
         observed_at,
         error_class
+
       FROM ranked
+
       WHERE rn = 1
+
       ORDER BY resource_name
     `)
     .all<LatestMeasurement>();
 
   const { results: freshnessResults = [] } = await db
     .prepare(`
-      WITH ranked AS (
-        SELECT
-          f.resource_id,
-          f.state,
-          f.extracted_timestamp,
-          f.observed_at,
-          f.strategy,
-          ROW_NUMBER() OVER (
-            PARTITION BY f.resource_id
-            ORDER BY f.observed_at DESC
-          ) AS rn
-        FROM freshness_observations f
-        INNER JOIN resources r
-          ON r.id = f.resource_id
-        WHERE r.ecosystem_universe = 'public-infrastructure'
-      )
       SELECT
-        resource_id,
-        state,
-        extracted_timestamp,
-        observed_at,
-        strategy
-      FROM ranked
-      WHERE rn = 1
+        f.resource_id,
+        f.state,
+        f.extracted_timestamp,
+        f.observed_at,
+        f.strategy
+
+      FROM freshness_observations f
+
+      INNER JOIN resources r
+        ON r.id = f.resource_id
+
+      WHERE
+        r.ecosystem_universe = 'public-infrastructure'
+
+        AND f.id = (
+          SELECT f2.id
+
+          FROM freshness_observations f2
+
+          WHERE f2.resource_id = f.resource_id
+
+          ORDER BY f2.observed_at DESC
+
+          LIMIT 1
+        )
     `)
     .all<FreshnessRow>();
 
   const summary = await db
     .prepare(`
       SELECT
-        COUNT(*) AS measurements,
-        SUM(
-          CASE WHEN m.success = 1 THEN 1 ELSE 0 END
-        ) AS successes
-      FROM measurements m
+        COALESCE(SUM(ds.measurements), 0) AS measurements,
+        COALESCE(SUM(ds.successes), 0) AS successes
+
+      FROM daily_endpoint_stats ds
+
       INNER JOIN endpoints e
-        ON e.id = m.endpoint_id
+        ON e.id = ds.endpoint_id
+
       INNER JOIN resources r
-        ON r.id = e.resource_id
+        ON r.id = ds.resource_id
+
       WHERE
         e.enabled = 1
         AND r.ecosystem_universe = 'public-infrastructure'
-        AND datetime(m.observed_at) >= datetime('now', '-30 days')
+        AND ds.day >= date('now', '-29 days')
     `)
     .first<SummaryRow>();
 
