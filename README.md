@@ -7,224 +7,159 @@
 **Production:** https://api-observatory-za.tysonbarnes.co.uk  
 **Stable release:** `v1.0.0`
 
-The SA Public API Observatory is a public, machine-readable catalogue and independent observability system for South African public-data infrastructure and the wider ZA API ecosystem.
+The **SA Public API Observatory** is a public, machine-readable catalogue and independent observability system for South African public-data infrastructure and the wider ZA API ecosystem.
 
-It answers three separate questions:
+It separates three questions that are often incorrectly collapsed into one:
 
 1. **What public-data infrastructure exists?**
-2. **Is it actually working?**
-3. **Is the data being served still current?**
+2. **Is the interface operational?**
+3. **Is the information being served still current?**
 
-Publication, transport availability, and data freshness are deliberately treated as different facts.
+An endpoint returning HTTP `200` does not prove that its data is fresh.
 
-An endpoint returning HTTP `200` does **not** necessarily mean its data is current.
+The Observatory records evidence rather than repeating publisher claims and does not invent historical observations where none exist.
 
 ---
 
 ## Why this exists
 
-Public APIs, statistical systems, GIS services, and open-data portals are increasingly important infrastructure.
+Finding an API is only the beginning.
 
-But discovering that an API exists is not enough.
+A production consumer also needs to know whether the endpoint is reachable, whether the payload is structurally valid, how reliable it has been over an observed window, whether authentication is unexpectedly required, whether the service is being rate limited, whether the published information is current, whether its interface or schema has changed, whether an incident is active, whether a previous incident recovered, and what evidence supports the current state.
 
-A useful public-data system also needs to answer:
-
-- Is the endpoint reachable?
-- Is the payload structurally valid?
-- How reliable has it been?
-- Is authentication unexpectedly required?
-- Is it rate-limited?
-- Is the published data fresh?
-- Has its interface or schema changed?
-- Is there an active incident?
-- When did it recover?
-- What evidence supports the current status?
-
-The Observatory records those observations independently rather than simply repeating publisher claims.
-
-**Unknown information remains unknown. Historical observations are never fabricated.**
+The Observatory makes those observations independently and exposes them to humans and machines.
 
 ---
 
-## Who it is for
+## Current capabilities
 
-The Observatory is intended for:
+The production system includes:
 
-- software developers integrating South African public data
-- data journalists and investigative researchers
-- academics and policy researchers
-- civic-tech projects
-- government and public-sector technical teams
-- businesses that depend on public information
-- automated systems and AI agents that need machine-readable trust signals
+- verified South African public-data and API catalogue;
+- explicit `public-infrastructure` and `za-api-ecosystem` universes;
+- scheduled Cloudflare Worker monitoring;
+- bounded concurrent probing;
+- SSRF-safe probe URL validation;
+- append-only measurement evidence;
+- HTTP status and latency observations;
+- response-size and payload validation;
+- payload and structural schema hashing;
+- publisher-specific freshness extraction;
+- `fresh`, `due`, `late`, `stale`, and `unknown` freshness states;
+- 30-day observed availability;
+- consecutive-failure incident thresholds;
+- incident opening, continuation, recovery, and closure;
+- structural/schema-change detection;
+- live National API Pulse;
+- live per-resource observability;
+- versioned `/api/v1` surfaces;
+- OpenAPI 3.1;
+- JSON, CSV, YAML, and NDJSON exports;
+- automated upstream candidate discovery;
+- review-only candidate promotion;
+- CI-gated Cloudflare production deployment; and
+- D1 cost-regression safeguards.
 
 ---
 
 ## Two explicit universes
 
-The catalogue deliberately separates two populations.
-
 ### Public Data Infrastructure
 
 Resources classified as:
 
-~~~text
+```text
 public-infrastructure
-~~~
+```
 
-These form the population used for national availability and freshness statistics.
-
-Examples include infrastructure published by:
-
-- National Treasury
-- South African Reserve Bank
-- Statistics South Africa
-- Electoral Commission of South Africa
-- DPME
-- DFFE
-- provincial government GIS systems
+This is the population used for national availability and freshness statistics.
 
 ### Wider ZA API Ecosystem
 
 Resources classified as:
 
-~~~text
+```text
 za-api-ecosystem
-~~~
+```
 
-These include useful South African commercial and developer APIs.
+This includes useful South African commercial and developer APIs.
 
-They remain discoverable through the Observatory but **never contaminate national public-infrastructure statistics**.
+These resources remain discoverable but do **not** enter national public-infrastructure statistics.
 
----
-
-## What the Observatory observes
-
-~~~text
-Official public-data source
-          │
-          ▼
-   Verified catalogue
-          │
-          ▼
-    Scheduled probes
-          │
-    ┌─────┼─────┐
-    ▼     ▼     ▼
-Transport Freshness Schema
-    │     │     │
-    └─────┼─────┘
-          ▼
- Append-only measurements
-          │
-    ┌─────┼──────────┐
-    ▼     ▼          ▼
-Incidents Recovery  Changes
-          │
-          ▼
- Historical evidence
-          │
-    ┌─────┼────────────┐
-    ▼     ▼            ▼
- Website API      OpenAPI / exports
-~~~
+Universe membership is explicit catalogue data. It is not inferred from a UI filter, category, or publisher name.
 
 ---
 
-## Production capabilities
+## Evidence and serving architecture
 
-`v1.0.0` includes:
+The Observatory deliberately separates durable historical evidence from bounded operational serving state.
 
-- verified South African public-data and API catalogue
-- explicit public-infrastructure and ecosystem boundaries
-- scheduled Cloudflare Worker monitoring
-- bounded concurrent probing
-- SSRF-safe probe URL validation
-- append-only production measurements
-- HTTP status observations
-- latency measurements
-- payload validation
-- payload hashing
-- structural schema hashing
-- observed 30-day availability
-- consecutive-failure incident thresholds
-- incident opening and continuation
-- recovery detection and incident closure
-- active and resolved incident history
-- publisher-specific freshness extraction
-- independent `fresh`, `due`, `late`, `stale`, and `unknown` states
-- structural/schema-change detection
-- live National API Pulse
-- live per-resource observability pages
-- machine-readable observability API
-- OpenAPI 3.1 specification
-- JSON, CSV, YAML, and NDJSON catalogue exports
-- automated upstream candidate discovery
-- review-only candidate workflow
-- CI-gated automatic Cloudflare production deployment
-- protected production branch with required CI verification
+```text
+PUBLIC SOURCE
+     │
+     ▼
+SAFE / BOUNDED MONITOR
+     │
+     ├──────────────► measurements
+     │                APPEND-ONLY EVIDENCE
+     │
+     ├──────────────► current_endpoint_state
+     │                LATEST SERVING STATE
+     │
+     └──────────────► daily_endpoint_stats
+                      BOUNDED HISTORICAL SERVING DATA
+                              │
+                              ▼
+                         PUBLIC QUERIES
+                              │
+                         API / WEBSITE
+```
+
+`measurements` is the durable observation history.
+
+Public current-state and availability paths do not derive routine responses by rescanning lifetime measurement history. They use materialized current state and compact daily rollups instead.
+
+This is a core architectural boundary, not merely an optimization.
+
+See:
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`docs/D1-COST-INVARIANT.md`](docs/D1-COST-INVARIANT.md)
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
 ---
 
-## Evidence model
+## Core engineering invariant
 
-The Observatory distinguishes between **publisher claims** and **independent observations**.
+> **Public request cost must scale with the monitored resource/endpoint universe or explicitly requested time window—not with lifetime measurement history.**
 
-### Publisher claims
+Historical evidence remains append-only.
 
-Examples include:
+The serving architecture exists specifically so preserving that evidence does not make ordinary public requests progressively more expensive as the measurement table grows.
 
-- documentation URLs
-- licence statements
-- authentication requirements
-- declared formats
-- publisher identity
-- API or portal descriptions
+The scheduled monitor may read narrowly bounded evidence when required for a state transition. For example, incident evaluation reads only the latest three observations for a single endpoint.
 
-### Observatory observations
-
-Examples include:
-
-- HTTP response status
-- latency
-- payload validity
-- structural signature
-- extracted freshness timestamp
-- observed availability
-- outage
-- recovery
-- schema change
-
-The two are never silently conflated.
+Unbounded historical scans on public hot paths are forbidden and protected by regression tests.
 
 ---
 
 ## Transport is not freshness
 
-These states are intentionally independent.
+Transport and freshness are independent observations.
 
-A resource can be:
+A resource can be `operational` while freshness is `stale`, or transport can be `down` while freshness is `unknown`.
 
-~~~text
-TRANSPORT: operational
-FRESHNESS: stale
-~~~
+The Observatory does not infer freshness from transport success.
 
-or:
+---
 
-~~~text
-TRANSPORT: down
-FRESHNESS: unknown
-~~~
+## Measurements
 
-or:
+Measurements are append-only observational facts.
 
-~~~text
-TRANSPORT: operational
-FRESHNESS: fresh
-~~~
+Stored evidence can include observation timestamp, success/failure, HTTP status, latency, response size, content type, payload validation result, error classification, payload hash, schema hash, and extracted freshness timestamp.
 
-The Observatory does not infer freshness merely because an endpoint responds successfully.
+Historical observations are not rewritten to improve availability scores.
 
 ---
 
@@ -232,9 +167,9 @@ The Observatory does not infer freshness merely because an endpoint responds suc
 
 A single failed request does not automatically constitute an outage.
 
-Current methodology:
+Current production methodology requires three consecutive outage-eligible failures before an incident opens.
 
-~~~text
+```text
 failed observation
         ↓
 failed observation
@@ -248,95 +183,51 @@ continued observations
 successful recovery observation
         ↓
 incident closes
-~~~
+```
 
-Authentication-required and rate-limited responses are represented separately from transport outages.
-
-Incident history is derived exclusively from production observations.
+Authentication-required and rate-limited responses remain measurements but do not automatically become transport outage incidents.
 
 ---
 
 ## Freshness
 
-Freshness is calculated only where there is a defensible publisher-specific extraction strategy.
+Freshness is calculated only where a defensible extraction strategy exists.
 
-Current examples include:
-
-- eTenders OCDS release dates
-- SARB indicator dates
-
-Resources without reliable freshness evidence remain:
-
-~~~text
-unknown
-~~~
-
-rather than being guessed.
+Unknown information remains `unknown` rather than being guessed.
 
 ---
 
-## Schema observatory
+## Structural change observatory
 
-For JSON payloads, the monitor computes structural signatures.
-
-When a successful observation produces a structural signature different from the previous valid observation, the Observatory records an append-only change event.
-
-Publisher payload contents are not retained merely to create schema history.
+For JSON payloads, the monitor can compute structural signatures. When a successful observation produces a structural signature different from the prior valid observation, the Observatory records an append-only change event.
 
 Relevant surfaces:
 
-~~~text
+```text
 /changes
 /api/v1/changes
-~~~
+```
 
 ---
 
 ## Public API
 
-Examples:
-
-~~~http
+```http
 GET /api/v1/resources
 GET /api/v1/resources/treasury-etenders-ocds
 GET /api/v1/resources?universe=public-infrastructure
-
 GET /api/v1/status
 GET /api/v1/status/public-infrastructure
 GET /api/v1/status/ecosystem
-
 GET /api/v1/incidents
 GET /api/v1/changes
-~~~
-
-A resource response can include live observability evidence:
-
-~~~json
-{
-  "observability": {
-    "latest_transport": {
-      "success": true,
-      "http_status": 200,
-      "latency_ms": 4763
-    },
-    "availability_30d": 99.55,
-    "freshness": {
-      "state": "fresh",
-      "extracted_timestamp": "2026-08-24T00:00:00.000Z"
-    },
-    "active_incidents": 0,
-    "incident_history": []
-  }
-}
-~~~
+```
 
 ---
 
 ## Machine-readable surfaces
 
-The project is designed to be useful without HTML scraping.
-
-~~~text
+```text
 /openapi.json
 /catalogue.json
 /catalogue.csv
@@ -345,165 +236,152 @@ The project is designed to be useful without HTML scraping.
 /public-infrastructure.json
 /za-api-ecosystem.json
 /.well-known/public-api-observatory.json
-~~~
-
-JSON Schemas are published under:
-
-~~~text
 /schemas/
-~~~
+```
 
 ---
 
-## Architecture
+## Production architecture
 
-The production system uses:
+Primary technologies:
 
 - TypeScript
 - React
+- Vinext/Vite
 - Cloudflare Workers
 - Cloudflare D1
+- Cloudflare R2
 - scheduled Worker triggers
+- Drizzle schema/migrations
 - GitHub Actions
 - OpenAPI 3.1
 
-Key areas:
+Key repository areas:
 
-~~~text
+```text
 app/                    Web UI + HTTP API
 components/             Shared UI
 packages/catalogue/     Canonical verified catalogue
-packages/monitor-core/  Monitoring and status logic
+packages/freshness/     Freshness classification
+packages/monitor-core/  Monitoring/status/persistence logic
 packages/shared/        Shared domain types
 workers/monitor/        Scheduled production monitor
-drizzle/                D1 schema and migrations
-scripts/                Import, validation and seed tooling
-tests/                  Domain and importer regression tests
-~~~
+db/                     Database schema
+drizzle/                D1 migrations
+scripts/                Validation, import and seed tooling
+tests/                  Domain, importer, rendering and cost guards
+```
+
+---
+
+## D1 serving model
+
+### `measurements`
+
+Immutable historical evidence.
+
+### `current_endpoint_state`
+
+One latest derived operational state per endpoint.
+
+### `daily_endpoint_stats`
+
+Compact endpoint/day aggregates used for bounded historical availability calculations without rescanning raw measurement history.
+
+The migration introducing this serving model is `drizzle/0002_d1_read_cost_remediation.sql`.
+
+The regression policy is enforced by `tests/d1-cost-regression.test.ts`.
+
+---
+
+## Caching
+
+Selected live public responses use short public cache windows, including `stale-while-revalidate`.
+
+Caching is a secondary protection. It does **not** excuse expensive database query shapes: an uncached request must still obey the D1 cost invariant.
 
 ---
 
 ## Production deployment
 
-Production follows:
+```text
+push / merge to main
+        ↓
+GitHub Actions: CI
+        ↓
+required verify job succeeds
+        ↓
+Deploy production workflow
+        ↓
+checkout exact tested commit
+        ↓
+build
+        ↓
+Cloudflare deployment
+```
 
-~~~text
-push main
-    ↓
-GitHub CI
-    ↓
-verify passes
-    ↓
-Deploy production
-    ↓
-Cloudflare
-    ↓
-api-observatory-za.tysonbarnes.co.uk
-~~~
-
-The tested commit is what gets deployed.
-
-The `main` branch is protected and requires the real CI `verify` check.
-
-Force pushes and branch deletion are disabled.
-
----
-
-## Upstream discovery
-
-The Observatory watches `sinditech/public-apis-za` as one discovery source for candidate APIs.
-
-Discovery does **not** imply verification.
-
-~~~text
-upstream source
-    ↓
-candidate parser
-    ↓
-reject malformed and repository-navigation entries
-    ↓
-genuine candidate diff
-    ↓
-review pull request
-    ↓
-manual verification
-~~~
-
-No verified resource or monitoring configuration is modified automatically.
-
-If there are no genuine candidates, no pull request is opened.
-
----
-
-## Methodological principles
-
-The project follows several hard rules:
-
-- verified catalogue data and observations remain separate
-- public infrastructure and commercial ecosystem resources remain separate
-- measurements are append-only facts
-- unknown values remain unknown
-- outages are not invented
-- freshness is not inferred from transport success
-- historical availability is not backfilled
-- automated discovery never equals verification
-- publisher payloads are processed conservatively
-- monitoring must avoid becoming abusive traffic
-- working production behaviour is treated as a contract
-
-See the live methodology:
-
-https://api-observatory-za.tysonbarnes.co.uk/methodology
+The repository's protected `main` branch requires the `verify` check.
 
 ---
 
 ## Local development
 
-Install dependencies:
-
-~~~bash
-npm ci
-~~~
-
-Run the verification suite:
-
-~~~bash
+```bash
 npm run lint
 npm run typecheck
+npm run validate:catalogue
 npm run test:unit
 npm run build
-~~~
+```
 
-Production Cloudflare builds and deployments run on Linux through GitHub Actions.
+Full local test path:
 
-### ARCHMAC / Linux
+```bash
+npm test
+```
 
-A normal Linux x86_64 workstation can run the complete local Cloudflare runtime.
+ARCHMAC can run:
 
-After installing dependencies and initializing the local D1 database:
-
-~~~bash
+```bash
 npm run dev:cloudflare
-~~~
+```
 
-This performs the production-style Vinext build and launches the generated Worker through Wrangler/workerd on the isolated local Cloudflare bindings.
-
-The local D1 database is separate from production.
-
-### Android / Termux
-
-Android/Termux is supported for repository work, tests, Git, and GitHub workflows.
-
-Cloudflare's local `workerd` runtime does not support Android ARM64, so production Wrangler build/deploy operations are intentionally executed on the GitHub Linux runner.
-
-See [`docs/TERMUX.md`](docs/TERMUX.md).
+See [`docs/TERMUX.md`](docs/TERMUX.md) for Android/Termux constraints.
 
 ---
 
-## Further documentation
+## Operations
+
+See [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+---
+
+## Methodological guarantees
+
+- catalogue claims and Observatory observations remain distinct;
+- public infrastructure and commercial ecosystem resources remain distinct;
+- measurements are append-only evidence;
+- unknown values remain unknown;
+- freshness is not inferred from transport success;
+- historical availability is not backfilled;
+- automated discovery never equals verification;
+- monitoring must remain bounded and non-abusive;
+- public serving paths must not scale with lifetime measurement history; and
+- working production behaviour is treated as a contract.
+
+Live methodology:
+
+https://api-observatory-za.tysonbarnes.co.uk/methodology
+
+---
+
+## Documentation
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`docs/D1-COST-INVARIANT.md`](docs/D1-COST-INVARIANT.md)
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - [`docs/TERMUX.md`](docs/TERMUX.md)
+- [`METHODOLOGY.md`](METHODOLOGY.md)
 - [`DATA-LICENCE.md`](DATA-LICENCE.md)
 - [`ATTRIBUTION.md`](ATTRIBUTION.md)
 - [`SECURITY.md`](SECURITY.md)
@@ -511,52 +389,16 @@ See [`docs/TERMUX.md`](docs/TERMUX.md).
 
 ---
 
-## Licensing
+## Licence
 
-Project code is covered by [`LICENSE`](LICENSE).
-
-Original catalogue metadata and data-specific licensing are documented separately in [`DATA-LICENCE.md`](DATA-LICENCE.md).
-
-Third-party sources and discovery datasets remain subject to their respective rights and attribution requirements documented in [`ATTRIBUTION.md`](ATTRIBUTION.md).
+Project code is licensed under the [`MIT License`](LICENSE).
 
 ---
 
-## Current scope
+## Scope
 
 `v1.0.0` focuses on South Africa.
 
 South Africa is the reference implementation for a broader idea:
 
 > **Independent observability infrastructure for public data.**
-
-A future country-neutral Observatory Engine could allow the same architecture to support additional national catalogues without maintaining separate forks.
-
-That is future direction, not a claim about current production coverage.
-
----
-
-## Contributing
-
-Useful contributions include:
-
-- identifying missing official public-data resources
-- supplying authoritative documentation
-- reporting catalogue errors
-- proposing safe monitoring strategies
-- adding freshness extraction strategies
-- adding regression tests
-- improving methodology
-- improving machine-readable schemas
-
-Discovery evidence should be reproducible and preferably come from official publisher sources.
-
-Automated discovery is a lead-generation mechanism only. Verification remains a deliberate review step.
-
----
-
-## Production
-
-**SA Public API Observatory**  
-https://api-observatory-za.tysonbarnes.co.uk
-
-**Stable release:** `v1.0.0`

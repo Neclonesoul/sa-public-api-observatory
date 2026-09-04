@@ -1,5 +1,15 @@
 # Changelog
 
+
+## Documentation hardening — 2026-09-04
+
+- Document the post-v1.0 evidence/serving architecture.
+- Record `current_endpoint_state` and `daily_endpoint_stats` as bounded D1 serving structures.
+- Establish the public-request D1 cost invariant.
+- Record the approximately 70M-row-read production failure as an engineering case study.
+- Add the production operations and D1 verification runbook.
+- Preserve append-only measurement history as a hard architectural rule.
+
 ## [0.1.1] - 2026-08-21
 
 ### Production
