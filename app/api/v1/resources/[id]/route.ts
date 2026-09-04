@@ -61,6 +61,8 @@ export async function GET(
         status: 404,
         headers: {
           "Access-Control-Allow-Origin": "*",
+        "Cache-Control":
+          "public, max-age=60, s-maxage=120, stale-while-revalidate=60",
         },
       },
     );
@@ -71,20 +73,25 @@ export async function GET(
   const latestTransport = await db
     .prepare(`
       SELECT
-        e.id AS endpoint_id,
-        m.observed_at,
-        m.success,
-        m.http_status,
-        m.latency_ms,
-        m.validation_result,
-        m.error_class
-      FROM endpoints e
-      INNER JOIN measurements m
-        ON m.endpoint_id = e.id
+        ces.endpoint_id,
+        ces.observed_at,
+        ces.success,
+        ces.http_status,
+        ces.latency_ms,
+        ces.validation_result,
+        ces.error_class
+
+      FROM current_endpoint_state ces
+
+      INNER JOIN endpoints e
+        ON e.id = ces.endpoint_id
+
       WHERE
-        e.resource_id = ?
+        ces.resource_id = ?
         AND e.enabled = 1
-      ORDER BY m.observed_at DESC
+
+      ORDER BY ces.observed_at DESC
+
       LIMIT 1
     `)
     .bind(resource.id)
@@ -93,17 +100,18 @@ export async function GET(
   const availability = await db
     .prepare(`
       SELECT
-        COUNT(*) AS measurements,
-        SUM(
-          CASE WHEN m.success = 1 THEN 1 ELSE 0 END
-        ) AS successes
-      FROM measurements m
+        COALESCE(SUM(ds.measurements), 0) AS measurements,
+        COALESCE(SUM(ds.successes), 0) AS successes
+
+      FROM daily_endpoint_stats ds
+
       INNER JOIN endpoints e
-        ON e.id = m.endpoint_id
+        ON e.id = ds.endpoint_id
+
       WHERE
-        e.resource_id = ?
+        ds.resource_id = ?
         AND e.enabled = 1
-        AND datetime(m.observed_at) >= datetime('now', '-30 days')
+        AND ds.day >= date('now', '-29 days')
     `)
     .bind(resource.id)
     .first<AvailabilityRow>();

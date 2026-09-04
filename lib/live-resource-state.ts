@@ -24,25 +24,32 @@ export async function getLiveResourceStates() {
     .prepare(`
       WITH ranked AS (
         SELECT
-          e.resource_id,
-          m.success,
-          m.http_status,
-          m.observed_at,
+          ces.resource_id,
+          ces.success,
+          ces.http_status,
+          ces.observed_at,
+
           ROW_NUMBER() OVER (
-            PARTITION BY e.resource_id
-            ORDER BY m.observed_at DESC
+            PARTITION BY ces.resource_id
+            ORDER BY ces.observed_at DESC
           ) AS rn
-        FROM endpoints e
-        INNER JOIN measurements m
-          ON m.endpoint_id = e.id
+
+        FROM current_endpoint_state ces
+
+        INNER JOIN endpoints e
+          ON e.id = ces.endpoint_id
+
         WHERE e.enabled = 1
       )
+
       SELECT
         resource_id,
         success,
         http_status,
         observed_at
+
       FROM ranked
+
       WHERE rn = 1
     `)
     .all<LatestRow>();

@@ -1,7 +1,7 @@
 // Intentionally empty by default.
 // Add Drizzle tables here when the site actually needs a database.
 // See examples/d1/db/schema.ts for an opt-in example.
-import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const organisations = sqliteTable("organisations", {
   id: text("id").primaryKey(), slug: text("slug").notNull(), name: text("name").notNull(),
@@ -48,3 +48,60 @@ export const schemaVersions = sqliteTable("schema_versions", {
 export const systemState = sqliteTable("system_state", {
   key: text("key").primaryKey(), value: text("value").notNull(), updatedAt: text("updated_at").notNull(),
 });
+
+// Materialized operational state.
+//
+// measurements remains immutable append-only evidence.
+// This table contains only the latest derived state per endpoint.
+export const currentEndpointState = sqliteTable(
+  "current_endpoint_state",
+  {
+    endpointId: text("endpoint_id").primaryKey(),
+    resourceId: text("resource_id").notNull(),
+    measurementId: text("measurement_id").notNull(),
+
+    success: integer("success", { mode: "boolean" }).notNull(),
+    httpStatus: integer("http_status"),
+    latencyMs: real("latency_ms"),
+
+    validationResult: text("validation_result").notNull(),
+    errorClass: text("error_class"),
+
+    schemaHash: text("schema_hash"),
+
+    observedAt: text("observed_at").notNull(),
+  },
+  (table) => [
+    index("current_endpoint_state_resource_observed_idx").on(
+      table.resourceId,
+      table.observedAt,
+    ),
+  ],
+);
+
+// Compact historical aggregate.
+//
+// Kept at endpoint granularity so public aggregation can continue to honour
+// the enabled endpoint boundary without reading raw measurement history.
+export const dailyEndpointStats = sqliteTable(
+  "daily_endpoint_stats",
+  {
+    day: text("day").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    resourceId: text("resource_id").notNull(),
+
+    measurements: integer("measurements").notNull().default(0),
+    successes: integer("successes").notNull().default(0),
+
+    latencySum: real("latency_sum").notNull().default(0),
+    latencySamples: integer("latency_samples").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.day, table.endpointId] }),
+    index("daily_endpoint_stats_resource_day_idx").on(
+      table.resourceId,
+      table.day,
+    ),
+    index("daily_endpoint_stats_day_idx").on(table.day),
+  ],
+);

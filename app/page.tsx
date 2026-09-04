@@ -117,26 +117,32 @@ export default async function Home() {
     .prepare(`
       WITH ranked AS (
         SELECT
-          r.id AS resource_id,
+          ces.resource_id,
           r.slug AS resource_slug,
           r.name AS resource_name,
-          m.success,
-          m.http_status,
-          m.latency_ms,
-          m.observed_at,
+          ces.success,
+          ces.http_status,
+          ces.latency_ms,
+          ces.observed_at,
+
           ROW_NUMBER() OVER (
-            PARTITION BY r.id
-            ORDER BY m.observed_at DESC
+            PARTITION BY ces.resource_id
+            ORDER BY ces.observed_at DESC
           ) AS rn
-        FROM endpoints e
+
+        FROM current_endpoint_state ces
+
+        INNER JOIN endpoints e
+          ON e.id = ces.endpoint_id
+
         INNER JOIN resources r
-          ON r.id = e.resource_id
-        INNER JOIN measurements m
-          ON m.endpoint_id = e.id
+          ON r.id = ces.resource_id
+
         WHERE
           e.enabled = 1
           AND r.ecosystem_universe = 'public-infrastructure'
       )
+
       SELECT
         resource_id,
         resource_slug,
@@ -145,6 +151,7 @@ export default async function Home() {
         http_status,
         latency_ms,
         observed_at
+
       FROM ranked
       WHERE rn = 1
       ORDER BY resource_name
@@ -154,38 +161,49 @@ export default async function Home() {
   const summary = await db
     .prepare(`
       SELECT
-        COUNT(*) AS measurements,
-        SUM(CASE WHEN m.success = 1 THEN 1 ELSE 0 END) AS successes
-      FROM measurements m
+        COALESCE(SUM(ds.measurements), 0) AS measurements,
+        COALESCE(SUM(ds.successes), 0) AS successes
+
+      FROM daily_endpoint_stats ds
+
       INNER JOIN endpoints e
-        ON e.id = m.endpoint_id
+        ON e.id = ds.endpoint_id
+
       INNER JOIN resources r
-        ON r.id = e.resource_id
+        ON r.id = ds.resource_id
+
       WHERE
         e.enabled = 1
         AND r.ecosystem_universe = 'public-infrastructure'
-        AND datetime(m.observed_at) >= datetime('now', '-30 days')
+        AND ds.day >= date('now', '-29 days')
     `)
     .first<SummaryRow>();
 
   const { results: freshnessResults = [] } = await db
     .prepare(`
-      WITH ranked AS (
-        SELECT
-          f.resource_id,
-          f.state,
-          ROW_NUMBER() OVER (
-            PARTITION BY f.resource_id
-            ORDER BY f.observed_at DESC
-          ) AS rn
-        FROM freshness_observations f
-        INNER JOIN resources r
-          ON r.id = f.resource_id
-        WHERE r.ecosystem_universe = 'public-infrastructure'
-      )
-      SELECT resource_id, state
-      FROM ranked
-      WHERE rn = 1
+      SELECT
+        f.resource_id,
+        f.state
+
+      FROM freshness_observations f
+
+      INNER JOIN resources r
+        ON r.id = f.resource_id
+
+      WHERE
+        r.ecosystem_universe = 'public-infrastructure'
+
+        AND f.id = (
+          SELECT f2.id
+
+          FROM freshness_observations f2
+
+          WHERE f2.resource_id = f.resource_id
+
+          ORDER BY f2.observed_at DESC
+
+          LIMIT 1
+        )
     `)
     .all<FreshnessRow>();
 
@@ -236,7 +254,8 @@ export default async function Home() {
         ON r.id = c.resource_id
       WHERE
         r.ecosystem_universe = 'public-infrastructure'
-        AND datetime(c.observed_at) >= datetime('now', '-7 days')
+        AND c.observed_at >=
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days')
     `)
     .first<{ count: number }>();
 
@@ -246,24 +265,39 @@ export default async function Home() {
         r.id AS resource_id,
         r.slug AS resource_slug,
         r.name AS resource_name,
-        COUNT(*) AS samples,
+
+        SUM(ds.measurements) AS samples,
+
         ROUND(
-          SUM(CASE WHEN m.success = 1 THEN 1 ELSE 0 END)
-          * 100.0 / COUNT(*),
+          SUM(ds.successes) * 100.0
+          / NULLIF(SUM(ds.measurements), 0),
           2
         ) AS availability
-      FROM measurements m
+
+      FROM daily_endpoint_stats ds
+
       INNER JOIN endpoints e
-        ON e.id = m.endpoint_id
+        ON e.id = ds.endpoint_id
+
       INNER JOIN resources r
-        ON r.id = e.resource_id
+        ON r.id = ds.resource_id
+
       WHERE
         e.enabled = 1
         AND r.ecosystem_universe = 'public-infrastructure'
-        AND datetime(m.observed_at) >= datetime('now', '-30 days')
-      GROUP BY r.id, r.slug, r.name
-      HAVING COUNT(*) > 0
-      ORDER BY availability DESC, samples DESC
+        AND ds.day >= date('now', '-29 days')
+
+      GROUP BY
+        r.id,
+        r.slug,
+        r.name
+
+      HAVING SUM(ds.measurements) > 0
+
+      ORDER BY
+        availability DESC,
+        samples DESC
+
       LIMIT 5
     `)
     .all<AvailabilityRow>();
@@ -271,25 +305,32 @@ export default async function Home() {
   const { results: dailyAvailability = [] } = await db
     .prepare(`
       SELECT
-        date(m.observed_at) AS day,
-        COUNT(*) AS measurements,
-        SUM(CASE WHEN m.success = 1 THEN 1 ELSE 0 END) AS successes,
+        ds.day,
+
+        SUM(ds.measurements) AS measurements,
+        SUM(ds.successes) AS successes,
+
         ROUND(
-          SUM(CASE WHEN m.success = 1 THEN 1 ELSE 0 END)
-          * 100.0 / COUNT(*),
+          SUM(ds.successes) * 100.0
+          / NULLIF(SUM(ds.measurements), 0),
           2
         ) AS availability
-      FROM measurements m
+
+      FROM daily_endpoint_stats ds
+
       INNER JOIN endpoints e
-        ON e.id = m.endpoint_id
+        ON e.id = ds.endpoint_id
+
       INNER JOIN resources r
-        ON r.id = e.resource_id
+        ON r.id = ds.resource_id
+
       WHERE
         e.enabled = 1
         AND r.ecosystem_universe = 'public-infrastructure'
-        AND datetime(m.observed_at) >= datetime('now', '-7 days')
-      GROUP BY date(m.observed_at)
-      ORDER BY day ASC
+        AND ds.day >= date('now', '-6 days')
+
+      GROUP BY ds.day
+      ORDER BY ds.day ASC
     `)
     .all<DailyRow>();
 

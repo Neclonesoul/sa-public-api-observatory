@@ -31,29 +31,37 @@ export async function GET() {
     .prepare(`
       WITH ranked AS (
         SELECT
-          e.resource_id,
+          ces.resource_id,
           r.ecosystem_universe AS universe,
-          m.success,
-          m.http_status,
-          m.observed_at,
+          ces.success,
+          ces.http_status,
+          ces.observed_at,
+
           ROW_NUMBER() OVER (
-            PARTITION BY e.resource_id
-            ORDER BY m.observed_at DESC
+            PARTITION BY ces.resource_id
+            ORDER BY ces.observed_at DESC
           ) AS rn
-        FROM endpoints e
+
+        FROM current_endpoint_state ces
+
+        INNER JOIN endpoints e
+          ON e.id = ces.endpoint_id
+
         INNER JOIN resources r
-          ON r.id = e.resource_id
-        INNER JOIN measurements m
-          ON m.endpoint_id = e.id
+          ON r.id = ces.resource_id
+
         WHERE e.enabled = 1
       )
+
       SELECT
         resource_id,
         universe,
         success,
         http_status,
         observed_at
+
       FROM ranked
+
       WHERE rn = 1
     `)
     .all<LatestTransportRow>();
@@ -62,49 +70,53 @@ export async function GET() {
     .prepare(`
       SELECT
         r.ecosystem_universe AS universe,
-        COUNT(*) AS sample_size,
-        SUM(
-          CASE WHEN m.success = 1 THEN 1 ELSE 0 END
-        ) AS successes
-      FROM measurements m
+
+        SUM(ds.measurements) AS sample_size,
+        SUM(ds.successes) AS successes
+
+      FROM daily_endpoint_stats ds
+
       INNER JOIN endpoints e
-        ON e.id = m.endpoint_id
+        ON e.id = ds.endpoint_id
+
       INNER JOIN resources r
-        ON r.id = e.resource_id
+        ON r.id = ds.resource_id
+
       WHERE
         e.enabled = 1
-        AND datetime(m.observed_at) >= datetime('now', '-30 days')
+        AND ds.day >= date('now', '-29 days')
+
       GROUP BY r.ecosystem_universe
     `)
     .all<AvailabilityRow>();
 
   const latestFreshness = await db
     .prepare(`
-      WITH ranked AS (
-        SELECT
-          f.resource_id,
-          r.ecosystem_universe AS universe,
-          f.state,
-          f.extracted_timestamp,
-          f.observed_at,
-          f.strategy,
-          ROW_NUMBER() OVER (
-            PARTITION BY f.resource_id
-            ORDER BY f.observed_at DESC
-          ) AS rn
-        FROM freshness_observations f
-        INNER JOIN resources r
-          ON r.id = f.resource_id
-      )
       SELECT
-        resource_id,
-        universe,
-        state,
-        extracted_timestamp,
-        observed_at,
-        strategy
-      FROM ranked
-      WHERE rn = 1
+        f.resource_id,
+        r.ecosystem_universe AS universe,
+        f.state,
+        f.extracted_timestamp,
+        f.observed_at,
+        f.strategy
+
+      FROM freshness_observations f
+
+      INNER JOIN resources r
+        ON r.id = f.resource_id
+
+      WHERE
+        f.id = (
+          SELECT f2.id
+
+          FROM freshness_observations f2
+
+          WHERE f2.resource_id = f.resource_id
+
+          ORDER BY f2.observed_at DESC
+
+          LIMIT 1
+        )
     `)
     .all<LatestFreshnessRow>();
 
@@ -125,6 +137,12 @@ export async function GET() {
 
     measurement_notice:
       "Transport and freshness are derived independently from observed production measurements. No historical observations have been invented.",
+  }, {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control":
+        "public, max-age=60, s-maxage=120, stale-while-revalidate=60",
+    },
   });
 }
 
